@@ -1,0 +1,4 @@
+Находясь в корневой папке проекта, выполните команду
+```commandline
+python bookkeeper/view/qt_window.py
+```
