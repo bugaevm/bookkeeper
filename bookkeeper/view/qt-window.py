@@ -1,11 +1,25 @@
+"""
+Графическое окно
+"""
+
 import sys
 from datetime import datetime
 from PySide6 import QtCore, QtWidgets, QtGui
+
+import os.path
+sys.path.insert(0, os.path.dirname(sys.argv[0]) + '/..')
+
+import presenter
 
 SUGGESTED_ACTION_COLOR = "#CCCCCC"
 DESTRUCTIVE_COLOR = "#AA0000"
 
 class TitledTable(QtWidgets.QWidget):
+    """
+    Таблица, имеющая заголовок.
+    Имеются методы для отображения и редактирования динамически меняющихся данных
+    """
+
     def __init__(
             self,
             title : str,
@@ -36,6 +50,11 @@ class TitledTable(QtWidgets.QWidget):
         self.table.itemChanged.connect(self.item_changed_cb)
 
     def refresh(self):
+        """
+        Перерисовывает таблицу.
+        Нужен, если данные, показываемые таблицей, были обновлены.
+        """
+
         content = self.RequestContent()
         self.table.setRowCount(len(content))
         if content:
@@ -54,9 +73,17 @@ class TitledTable(QtWidgets.QWidget):
         self.table.resizeColumnsToContents()
 
     def get_selected_rows(self):
+        """
+        Возвращает список индексов выделенных строк (строка считается выделенной, если в ней выделены все клетки).
+        Используется, чтобы удалить данные из выделенных строк.
+        """
+
         return sorted([selected.row() for selected in self.table.selectionModel().selectedRows()])
 
     def item_changed_cb(self, item):
+        """
+        Метод, уведомляющий о том, что некоторый элемент изменился (был отредактирован пользователем).
+        """
         row = item.row()
         column = item.column()
         new_text = item.text()
@@ -68,11 +95,32 @@ class Window(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
 
-        self.categories_list = []
-        self.expenses_list = list()
+        self.presenter = presenter.Presenter()
+
+        self.categories_ids_list = list()
+        self.expenses_ids_list = list()
+        self.budgets_ids_list = list()
+
 
         def change_exspense_item(row, column, new_text):
-            old_text = self.expenses_list[row][column]
+            changed_exp_id = self.expenses_ids_list[row]
+
+            old_expense = self.presenter.ExpensesGetById(changed_exp_id)
+            match column:
+                case 0:
+                    old_text = old_expense.expense_date.strftime("%d.%m.%y %H:%M:%S")
+                case 1:
+                    old_text = str(old_expense.amount)
+                case 2:
+                    try:
+                        old_text = self.presenter.CategoryGetById(old_expense.category_id).name
+                    except ValueError:
+                        old_text = "Неизвестная категория"
+                case 3:
+                    old_text = old_expense.comment
+                case _:
+                    raise ValueError("Wrong column index")
+
             if old_text == new_text:
                 return
 
@@ -80,38 +128,54 @@ class Window(QtWidgets.QWidget):
 
             if column == 0:
                 try:
-                    datetime.strptime(new_text, "%d.%m.%y %H:%M:%S")
+                    new_date = datetime.strptime(new_text, "%d.%m.%y %H:%M:%S")
                 except ValueError:
                     show_dialog(self, "Не удалось изменить данные", f"Некорректная дата: {new_text}")
                     correct_data = False
             elif column == 1:
                 try:
-                    float(new_text)
+                    new_cost = float(new_text)
                 except ValueError:
                     show_dialog(self, "Не удалось изменить данные", f"Некорректная сумма: {new_text}")
                     correct_data = False
-            elif column == 2:
-                if not [new_text] in self.categories_list:
-                    show_dialog(self, "Не удалось изменить данные", f"Некорректная категория: {new_text}")
-                    correct_data = False
+            # elif column == 2:
+            #     if not [new_text] in self.categories_list:
+            #         show_dialog(self, "Не удалось изменить данные", f"Некорректная категория: {new_text}")
+            #         correct_data = False
 
             if correct_data:
-                self.expenses_list[row][column] = new_text
+                match column:
+                    case 0:
+                        self.presenter.ExpenseEditDate(changed_exp_id, new_date)
+                    case 1:
+                        self.presenter.ExpenseEditCost(changed_exp_id, new_cost)
+                    case 2:
+                        try:
+                            self.presenter.ExpenseEditCategoryByName(changed_exp_id, new_text)
+                        except NameError:
+                            show_dialog(self, "Не удалось изменить данные", f"Некорректная категория: {new_text}")
+                    case 3:
+                        self.presenter.ExpenseEditComment(changed_exp_id, new_text)
+                    case _:
+                        raise ValueError("Wrong column index")
+
             self.table_expenses.refresh()
+            self.table_budget.refresh()
 
         self.table_expenses = TitledTable(
             "Последние расходы",
-            lambda : self.expenses_list,
+            self.get_expences_list,
             change_exspense_item,
             hheaders=("Дата", "Сумма", "Категория", "Комментарий")
         )
+
 
         # begin 'add expense' box
         self.cost_label = QtWidgets.QLabel("Сумма:")
         self.cost_entry = QtWidgets.QLineEdit()
         self.category_label = QtWidgets.QLabel("Категория:")
         self.category_combo_box = QtWidgets.QComboBox()
-        self.category_combo_box.addItems([line[0] for line in self.categories_list])
+        self.category_combo_box.addItems([line[0] for line in self.get_categories_list(update_inds=False)])
         self.comment_label = QtWidgets.QLabel("Комментарий:")
         self.comment_entry = QtWidgets.QLineEdit()
 
@@ -129,12 +193,15 @@ class Window(QtWidgets.QWidget):
         self.add_expense_box.addWidget(self.add_expense_button)
         # end 'add expense' box
 
+
         def delete_expenses():
             deleted = 0
             for index in self.table_expenses.get_selected_rows():
-                self.expenses_list.pop(index - deleted)
+                exp_id = self.expenses_ids_list.pop(index - deleted)
+                self.presenter.ExpenseDelete(exp_id)
                 deleted += 1
             self.table_expenses.refresh()
+            self.table_budget.refresh()
 
         self.delete_expenses_button = QtWidgets.QPushButton("Удалить выделенные расходы")
         self.delete_expenses_button.setStyleSheet(f"color: white; background-color: {DESTRUCTIVE_COLOR}")
@@ -142,7 +209,8 @@ class Window(QtWidgets.QWidget):
 
 
         def change_category_item(row, column, new_text):
-            old_text = self.categories_list[row][0]
+            changed_cat_id = self.categories_ids_list[row]
+            old_text = self.presenter.CategoryGetById(changed_cat_id).name
             if old_text == new_text:
                 return
 
@@ -150,20 +218,25 @@ class Window(QtWidgets.QWidget):
             if not new_text:
                 show_dialog(self, "Не удалось изменить категорию", "Имя категории не должно быть пустым")
                 correct_data = False
-            if [new_text] in self.categories_list:
-                show_dialog(self, "Не удалось изменить категорию", f"Категория \"{new_text}\" уже существует")
-                correct_data = False
+            # if [new_text] in self.categories_list:
+            #     show_dialog(self, "Не удалось изменить категорию", f"Категория \"{new_text}\" уже существует")
+            #     correct_data = False
 
             if correct_data:
-                self.categories_list[row][0] = new_text
-                self.category_combo_box.removeItem(row)
-                self.category_combo_box.insertItem(row, new_text)
+                try:
+                    self.presenter.CategoryEditName(changed_cat_id, new_text)
+                except NameError:
+                    show_dialog(self, "Не удалось изменить категорию", f"Категория \"{new_text}\" уже существует")
+                else:
+                    self.category_combo_box.removeItem(row)
+                    self.category_combo_box.insertItem(row, new_text)
+
             self.table_categories.refresh()
             self.table_expenses.refresh()
 
         self.table_categories = TitledTable(
             "Категории",
-            lambda : self.categories_list,
+            self.get_categories_list,
             change_category_item,
             hheaders=["Название категории"]
         )
@@ -185,7 +258,8 @@ class Window(QtWidgets.QWidget):
         def delete_categories():
             deleted = 0
             for index in self.table_categories.get_selected_rows():
-                self.categories_list.pop(index - deleted)
+                cat_id = self.categories_ids_list.pop(index - deleted)
+                self.presenter.CategoryDelete(cat_id)
                 self.category_combo_box.removeItem(index - deleted)
                 deleted += 1
             self.table_categories.refresh()
@@ -196,19 +270,40 @@ class Window(QtWidgets.QWidget):
         self.delete_categories_button.clicked.connect(delete_categories)
 
 
-        second_table_content = [
-            ["705.43", "1000"],
-            ["6719.43", "7000"],
-            ["10592.96", "30000"]
-        ]
-        second_table_hheaders = ("Сумма", "Бюджет")
-        second_table_vheaders = ("День", "Неделя", "Месяц")
+        def change_budget_item(row, column, new_text):
+            old_text = self.get_budget()[row][column]
+            if old_text == new_text:
+                return
+
+            if column != 1:
+                self.table_budget.refresh()
+                return
+
+            # old_text = self.get_budget()[row][column]
+            # if old_text == new_text:
+            #     return
+
+            correct_data = True
+            if not new_text:
+                new_text = "0"
+            try:
+                limit = int(new_text)
+            except ValueError:
+                show_dialog(self, "Не удалось изменить бюджет", f"Некорректная сумма: {new_text}")
+                correct_data = False
+
+            if correct_data:
+                self.presenter.BudgetEditLimit(self.budgets_ids_list[row], limit)
+            self.table_budget.refresh()
+
+        table_budget_hheaders = ("Сумма", "Бюджет", "Статус")
+        table_budget_vheaders = ("День", "Неделя", "Месяц")
         self.table_budget = TitledTable(
             "Бюджет",
-            lambda : second_table_content,
-            lambda : None,
-            hheaders=second_table_hheaders,
-            vheaders=second_table_vheaders
+            self.get_budget,
+            change_budget_item,
+            hheaders=table_budget_hheaders,
+            vheaders=table_budget_vheaders
         )
 
         self.layout = QtWidgets.QVBoxLayout(self)
@@ -222,16 +317,19 @@ class Window(QtWidgets.QWidget):
 
 
     def add_expense_cb(self):
-        date = datetime.now().strftime("%d.%m.%y %H:%M:%S")
+        #date = datetime.now().strftime("%d.%m.%y %H:%M:%S")
         cost = self.cost_entry.text()
         category = self.category_combo_box.currentText()
         comment = self.comment_entry.text()
+
+        if not comment:
+            comment = "Расход создан"
 
         if not cost:
             show_dialog(self, "Не удалось добавить расход", "Укажите сумму")
             return
         try:
-            float(cost)
+            fcoast = float(cost)
         except ValueError:
             show_dialog(self, "Не удалось добавить расход", f"Некорректная сумма: {cost}")
             return
@@ -239,12 +337,19 @@ class Window(QtWidgets.QWidget):
         if not category:
             show_dialog(self, "Не удалось добавить расход", "Укажите категорию")
             return
-        if not [category] in self.categories_list:
-            show_dialog(self, "Не удалось добавить расход", f"Некорректная категория: {category}")
-            return
+        # if not [category] in self.categories_list:
+        #     show_dialog(self, "Не удалось добавить расход", f"Некорректная категория: {category}")
+        #     return
 
-        self.expenses_list.append([date, cost, category, comment])
+        # self.expenses_list.append([date, cost, category, comment])
+
+        try:
+            self.presenter.ExpenseAdd(fcoast, category, comment)
+        except NameError:
+            show_dialog(self, "Не удалось добавить расход", f"Некорректная категория: {category}")
+
         self.table_expenses.refresh()
+        self.table_budget.refresh()
 
         self.cost_entry.clear()
         self.comment_entry.clear()
@@ -254,20 +359,78 @@ class Window(QtWidgets.QWidget):
         if not category_name:
             show_dialog(self, "Не удалось добавить категорию", "Имя категории не должно быть пустым")
             return
-        if [category_name] in self.categories_list:
+        # if [category_name] in self.categories_list:
+        #     show_dialog(self, "Не удалось добавить категорию", f"Категория \"{category_name}\" уже существует")
+        #     return
+
+        # self.categories_list.append([category_name])
+        try:
+            self.presenter.CategoryAdd(category_name)
+        except NameError:
             show_dialog(self, "Не удалось добавить категорию", f"Категория \"{category_name}\" уже существует")
             return
 
-        self.categories_list.append([category_name])
         self.table_categories.refresh()
         self.category_combo_box.addItem(category_name)
 
         self.new_category_entry.clear()
 
+
     def get_expences_list(self):
-        return self.expenses_list
-    def get_categories_list(self):
-        return self.categories_list
+        self.expenses_ids_list = list()
+        res = list()
+
+        for expense in self.presenter.ExpensesGetList():
+            self.expenses_ids_list.append(expense.obj_id)
+
+            try:
+                cat_name = self.presenter.CategoryGetById(expense.category_id).name
+            except ValueError:
+                cat_name = "Неизвестная категория"
+
+            res.append([
+                expense.expense_date.strftime("%d.%m.%y %H:%M:%S"),
+                str(expense.amount),
+                cat_name,
+                expense.comment
+            ])
+
+        return res
+
+    def get_categories_list(self, update_inds=True):
+        if update_inds:
+            self.categories_ids_list = list()
+
+        res = list()
+        for category in self.presenter.CategoriesGetList():
+            if update_inds:
+                self.categories_ids_list.append(category.obj_id)
+            res.append([category.name])
+        return res
+
+    def get_budget(self):
+        bdg_day = self.presenter.BudgetGetSumForPeriod(0)
+        bdg_week = self.presenter.BudgetGetSumForPeriod(1)
+        bdg_month = self.presenter.BudgetGetSumForPeriod(2)
+
+        day_bdg = self.presenter.BudgetGetByPeriod(0)
+        week_bdg = self.presenter.BudgetGetByPeriod(1)
+        month_bdg = self.presenter.BudgetGetByPeriod(2)
+
+        day_limit = day_bdg.limit
+        week_limit = week_bdg.limit
+        month_limit = month_bdg.limit
+
+        self.budgets_ids_list = [day_bdg.obj_id, week_bdg.obj_id, month_bdg.obj_id]
+
+        warning = "Расходы превышают установленный бюджет"
+        return [
+            [str(bdg_day), str(day_limit), "" if bdg_day <= day_limit else warning],
+            [str(bdg_week), str(week_limit), "" if bdg_week <= week_limit else warning],
+            [str(bdg_month), str(month_limit), "" if bdg_month <= month_limit else warning]
+        ]
+
+
 
 
 def show_dialog(widget, title, message):
@@ -280,6 +443,8 @@ def show_dialog(widget, title, message):
         dialog.removeButton(button)
     dialog.addButton(QtWidgets.QMessageBox.Close)
     dialog.show()
+
+
 
 
 if __name__ == "__main__":
