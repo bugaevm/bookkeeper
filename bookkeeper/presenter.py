@@ -1,9 +1,3 @@
-# from db_connector import db
-
-# from entities.budget import Budget
-# from entities.category import Category
-# from entities.expense import Expense
-
 from pony import orm
 from datetime import datetime, timedelta
 

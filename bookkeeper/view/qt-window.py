@@ -138,10 +138,6 @@ class Window(QtWidgets.QWidget):
                 except ValueError:
                     show_dialog(self, "Не удалось изменить данные", f"Некорректная сумма: {new_text}")
                     correct_data = False
-            # elif column == 2:
-            #     if not [new_text] in self.categories_list:
-            #         show_dialog(self, "Не удалось изменить данные", f"Некорректная категория: {new_text}")
-            #         correct_data = False
 
             if correct_data:
                 match column:
@@ -218,9 +214,6 @@ class Window(QtWidgets.QWidget):
             if not new_text:
                 show_dialog(self, "Не удалось изменить категорию", "Имя категории не должно быть пустым")
                 correct_data = False
-            # if [new_text] in self.categories_list:
-            #     show_dialog(self, "Не удалось изменить категорию", f"Категория \"{new_text}\" уже существует")
-            #     correct_data = False
 
             if correct_data:
                 try:
@@ -279,9 +272,6 @@ class Window(QtWidgets.QWidget):
                 self.table_budget.refresh()
                 return
 
-            # old_text = self.get_budget()[row][column]
-            # if old_text == new_text:
-            #     return
 
             correct_data = True
             if not new_text:
@@ -317,7 +307,6 @@ class Window(QtWidgets.QWidget):
 
 
     def add_expense_cb(self):
-        #date = datetime.now().strftime("%d.%m.%y %H:%M:%S")
         cost = self.cost_entry.text()
         category = self.category_combo_box.currentText()
         comment = self.comment_entry.text()
@@ -337,11 +326,6 @@ class Window(QtWidgets.QWidget):
         if not category:
             show_dialog(self, "Не удалось добавить расход", "Укажите категорию")
             return
-        # if not [category] in self.categories_list:
-        #     show_dialog(self, "Не удалось добавить расход", f"Некорректная категория: {category}")
-        #     return
-
-        # self.expenses_list.append([date, cost, category, comment])
 
         try:
             self.presenter.ExpenseAdd(fcoast, category, comment)
@@ -359,11 +343,7 @@ class Window(QtWidgets.QWidget):
         if not category_name:
             show_dialog(self, "Не удалось добавить категорию", "Имя категории не должно быть пустым")
             return
-        # if [category_name] in self.categories_list:
-        #     show_dialog(self, "Не удалось добавить категорию", f"Категория \"{category_name}\" уже существует")
-        #     return
 
-        # self.categories_list.append([category_name])
         try:
             self.presenter.CategoryAdd(category_name)
         except NameError:
@@ -450,7 +430,6 @@ def show_dialog(widget, title, message):
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
 
-    # widget = MyWidget()
     widget = Window()
     widget.setWindowTitle("The Bookkeeper App")
     widget.resize(800, 600)
